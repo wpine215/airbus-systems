@@ -23,6 +23,22 @@ impl UpdateContext {
             ambient_temperature,
         }
     }
+
+    //Let's simulate the simulator. Will sleep main thread random time from min fps to max fps
+    //Updates the delta of context structure as well
+    pub fn simulate_simulator_loop(&mut self, min_fps : i32,max_fps : i32){
+        use rand::prelude::*;
+
+        let min_loop_time_nano = (1.0/(max_fps as f64) * 1000000000.0) as u32;
+        let max_loop_time_nano = (1.0/(min_fps as f64) * 1000000000.0) as u32;
+
+        let mut rng = rand::thread_rng();
+        let fs2020_loop_time_nanosec = rng.gen_range(min_loop_time_nano..max_loop_time_nano);
+
+        std::thread::sleep(Duration::new(0, fs2020_loop_time_nanosec));
+
+        self.delta=Duration::new(0, fs2020_loop_time_nanosec);
+    }
 }
 
 #[cfg(test)]

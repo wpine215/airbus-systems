@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::{Ordering, max}, usize};
 use std::f64::consts;
 use std::time::Duration;
 
@@ -640,30 +640,119 @@ impl PressureSource for RatPump {
 // ACTUATOR DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
 
+pub struct Actuator_Physics {
+    acceleration : f64, //% per s^²
+    speed :  f64, //% per s
+    position : f64, //%
+    virtualInertia: f64, //Virtual inertia (would depend on inertia matrix of control surface and it's motion constraints)
+    maxPos: f64,
+    minPos: f64,
+
+    sum_of_forces : f64,
+    position_request : f64,
+}
+
+impl Actuator_Physics {
+    pub fn new() -> Actuator_Physics {
+        Actuator_Physics{
+            acceleration : 0.0,
+            speed : 0.0,
+            position :0.0,
+            maxPos:100.0,
+            minPos:-100.0,
+            sum_of_forces:0.0,
+            position_request:0.0,
+            virtualInertia:1000000.0,
+            }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext) {
+        //Thanks Newton! F=m.a --> a= F/m
+        self.acceleration=self.sum_of_forces/self.virtualInertia;
+        let prev_speed = self.speed;//Saving cur speed
+        self.speed=self.speed + self.acceleration * context.delta.as_secs_f64(); //Updating speed
+        self.position=self.position + 0.5*(prev_speed+self.speed) * context.delta.as_secs_f64(); //Updating position using mid point speed (mean of last and new speed)
+
+        //Force position to min or max
+        if self.position > self.maxPos {
+            self.position=self.maxPos;
+            self.speed=0.0;
+
+        } else if self.position < self.minPos {
+            self.position=self.minPos;
+            self.speed=0.0;
+        }
+
+        self.sum_of_forces=0.0;
+    }
+}
 pub struct Actuator {
     a_type: ActuatorType,
     active: bool,
     affected_by_gravity: bool,
     area: Area,
-    line: HydLoop,
+    //line: HydLoop,
+    availablePress: Pressure,
     neutral_is_zero: bool,
     stall_load: Force,
     volume_used_at_max_deflection: Volume,
+    actuator_physics : Actuator_Physics,
 }
 
 // TODO
 impl Actuator {
-    pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
+    pub fn new(a_type: ActuatorType) -> Actuator {
         Actuator { 
             a_type,
             active: false,
             affected_by_gravity: false,
-            area: Area::new::<square_meter>(5.0),
-            line,
+            area: Area::new::<square_meter>(0.01),
+            availablePress:Pressure::new::<psi>(0.0),
+            //line,
             neutral_is_zero: true,
             stall_load: Force::new::<newton>(47000.),
             volume_used_at_max_deflection: Volume::new::<gallon>(0.),
+            actuator_physics: Actuator_Physics::new(),
         }
+    }
+
+    pub fn show(&self){
+        let mut showStrPos = [b'-'; 30];
+        showStrPos[0] = b'[';
+        showStrPos[29] = b']';
+
+
+        let currentPositionRatio = self.actuator_physics.position / (self.actuator_physics.maxPos - self.actuator_physics.minPos) + 0.5;
+        let currentPositionReqRatio = self.actuator_physics.position_request / (self.actuator_physics.maxPos - self.actuator_physics.minPos) + 0.5;
+
+        let testLen = showStrPos.len()-1;// showStrPos.len();
+        let strPos = (testLen as f64 * currentPositionRatio) as usize;
+        let strPosReq = (testLen as f64 * currentPositionReqRatio) as usize ;
+  
+        showStrPos[strPosReq]=b'o';
+        showStrPos[strPos]=b'+';
+        
+        println!("{:?}",std::str::from_utf8(&showStrPos).unwrap().to_string());  
+    }
+
+    pub fn update(&mut self,context: &UpdateContext){
+        self.updateServoForces(context);
+        //self.updateExternalForces();
+        self.actuator_physics.update(context);
+    }
+
+    pub fn updateServoForces(&mut self,context: &UpdateContext){
+        
+        let mut dummyGravity= -10000000.0;
+        let mut actuatorForce=self.availablePress.get::<pascal>() / self.area.get::<square_meter>() as f64;
+        
+        if self.actuator_physics.position_request < self.actuator_physics.position {
+            actuatorForce=-actuatorForce;
+        } 
+
+        self.actuator_physics.sum_of_forces += actuatorForce;
+        self.actuator_physics.sum_of_forces += dummyGravity;
+            
     }
 }
 
@@ -674,6 +763,105 @@ impl Actuator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time;
+    use std::time::{Duration, Instant};
+    use std::thread::sleep;
+    use rand::prelude::*;
+
+    #[test]
+    fn actuator_real_time_simulation() {
+        let mut edp1 = engine_driven_pump();
+        let mut green_loop = hydraulic_loop(LoopColor::Green);
+
+        let a_type = ActuatorType::Aileron;
+        let mut testActuator = Actuator::new(a_type);
+        edp1.active = true;
+
+        let init_n2 = Ratio::new::<percent>(0.0);
+        let mut engine1 = engine(init_n2);
+        let mut ct = context(Duration::from_millis(50));
+        
+        let mut rng = rand::thread_rng();
+
+        let timeStart = Instant::now();
+        let mut now =  Instant::now();
+
+        let min_hyd_loop_timestep = Duration::from_millis(50); //Hyd Sim rate = 20 Hz
+        let mut time_lag_accumulator = 0.0;
+
+        while timeStart.elapsed() < Duration::new(10, 0)  {
+           
+            //Generating a dummy sleep representing FS2020 loop
+            ct.simulate_simulator_loop(5,6);
+            //print!("{}[2J", 27 as char); // clear screen
+            
+
+            //time to catch up in our simulation
+            let mut timeElapsed = now.elapsed();
+            //println!("#####################");
+            //println!("Updating time elapsed: {:?}", timeElapsed);  
+
+            timeElapsed=timeElapsed+ Duration::from_secs_f64(time_lag_accumulator);
+
+            
+            let numberOfSteps_f64 = timeElapsed.as_secs_f64()/min_hyd_loop_timestep.as_secs_f64();
+            //println!("Num of time steps: {:?}", numberOfSteps_f64);  
+
+            if numberOfSteps_f64 < 1.0 {
+                //Can't do a full time step
+                //we can either do an update with smaller step or wait next iteration
+                //Other option is to update only actuator position based on known hydraulic 
+                //state to avoid lag of control surfaces if sim runs really fast
+                time_lag_accumulator=numberOfSteps_f64 * min_hyd_loop_timestep.as_secs_f64(); //Time lag is float part of num of steps * fixed time step to get a result in time
+            } else {
+                //TRUE UPDATE LOOP HERE
+                let num_of_update_loops = numberOfSteps_f64.floor() as u32;
+                //println!("Num of update loops: {:?}", num_of_update_loops);  
+                time_lag_accumulator= (numberOfSteps_f64 - (num_of_update_loops as f64))* min_hyd_loop_timestep.as_secs_f64(); //Keep track of time left after all fixed loop are done
+                //println!("Remaining lag at end of update: {:?}s", time_lag_accumulator); 
+
+                ////FAKE INPUTS
+                //Generating actuator command
+                let curTim=timeStart.elapsed().as_secs() as u32;
+                if curTim % 2 == 0 {
+                    testActuator.actuator_physics.position_request = 100.0;
+                } else {
+                    testActuator.actuator_physics.position_request = -100.0;
+                }
+                //Activating pump at 5s
+                if curTim > 5 {
+                    engine1.n2=Ratio::new::<percent>(0.3);
+                }
+                ////END FAKE INPUTS
+
+
+                for curLoop in  0..num_of_update_loops {
+                    //UPDATE HYDRAULICS FIXED TIME STEP
+                    //println!("Loop {:?} UPDATING HYDRAULICS({:?}ms)", curLoop, min_hyd_loop_timestep.as_millis()); 
+                    
+                    ct.delta=min_hyd_loop_timestep; // Hacking the delta for now....  Will introduce bugs when speeding sim time and so on I guess
+                    
+                    edp1.update(&ct, &green_loop, &engine1);
+                    green_loop.update(&ct, Vec::new(), vec![&edp1], Vec::new(), Vec::new());
+
+                    testActuator.availablePress = green_loop.loop_pressure;
+                    testActuator.update(&ct);
+                }
+                println!("---Green loop PSI: {}", green_loop.loop_pressure.get::<psi>());
+                testActuator.show();
+                
+            }
+
+
+            println!("Real time: {:?}", timeStart.elapsed());  
+            
+            now=Instant::now();
+        }
+
+        assert!(true)
+    }
+
+
     #[test]
     fn green_loop_edp_simulation() {
         let mut edp1 = engine_driven_pump();
