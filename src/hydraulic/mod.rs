@@ -639,48 +639,82 @@ impl PressureSource for RatPump {
 ////////////////////////////////////////////////////////////////////////////////
 // ACTUATOR DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
-
-pub struct Actuator_Physics {
+#[derive(Copy, Clone)]
+pub struct PhysicsState{
     acceleration : f64, //% per s^²
     speed :  f64, //% per s
     position : f64, //%
+}
+
+impl PhysicsState {
+    pub fn new() -> PhysicsState {
+        PhysicsState{
+            acceleration : 0.0,
+            speed : 0.0,
+            position :0.0,
+        }
+    }
+
+    pub fn set_position(&mut self ,newPos : f64){
+        self.position=newPos;
+        self.speed = 0.0;
+        self.acceleration = 0.0;
+    }
+    
+}
+pub struct Moving_Part {
     virtualInertia: f64, //Virtual inertia (would depend on inertia matrix of control surface and it's motion constraints)
     maxPos: f64,
     minPos: f64,
 
+    physics_state: PhysicsState,
+    prev_physics_state: PhysicsState,  
+
     sum_of_forces : f64,
     position_request : f64,
+
+    lock_positions : Vec<f64>, //Vector of all lockable positions
 }
 
-impl Actuator_Physics {
-    pub fn new() -> Actuator_Physics {
-        Actuator_Physics{
-            acceleration : 0.0,
-            speed : 0.0,
-            position :0.0,
+impl Moving_Part {
+    pub fn new() -> Moving_Part {
+        Moving_Part{
+            physics_state : PhysicsState::new(),
+            prev_physics_state : PhysicsState::new(),
+
+            lock_positions : Vec::new(),
+
+            virtualInertia:1000000.0,
+
             maxPos:100.0,
             minPos:-100.0,
+            
             sum_of_forces:0.0,
             position_request:0.0,
-            virtualInertia:1000000.0,
             }
     }
 
+    pub fn compute_external_forces(&mut self, context: &UpdateContext){
+        let dummyGravity= -10000000.0;
+        self.sum_of_forces+=dummyGravity;
+    }
+
+    pub fn get_pos(&self)-> f64{
+        return self.physics_state.position;
+    }
+
     pub fn update(&mut self, context: &UpdateContext) {
+        self.prev_physics_state=self.physics_state;
         //Thanks Newton! F=m.a --> a= F/m
-        self.acceleration=self.sum_of_forces/self.virtualInertia;
-        let prev_speed = self.speed;//Saving cur speed
-        self.speed=self.speed + self.acceleration * context.delta.as_secs_f64(); //Updating speed
-        self.position=self.position + 0.5*(prev_speed+self.speed) * context.delta.as_secs_f64(); //Updating position using mid point speed (mean of last and new speed)
+        self.physics_state.acceleration=self.sum_of_forces/self.virtualInertia;
+        self.physics_state.speed=self.physics_state.speed + self.physics_state.acceleration * context.delta.as_secs_f64(); //Updating speed
+        self.physics_state.position=self.physics_state.position + 0.5*(self.prev_physics_state.speed+self.physics_state.speed) * context.delta.as_secs_f64(); //Updating position using mid point speed (mean of last and new speed)
 
         //Force position to min or max
-        if self.position > self.maxPos {
-            self.position=self.maxPos;
-            self.speed=0.0;
-
-        } else if self.position < self.minPos {
-            self.position=self.minPos;
-            self.speed=0.0;
+        if self.physics_state.position > self.maxPos {
+            self.physics_state.set_position(self.maxPos);
+        } else if self.physics_state.position < self.minPos {
+            self.physics_state.set_position(self.minPos);
         }
 
         self.sum_of_forces=0.0;
@@ -696,7 +730,7 @@ pub struct Actuator {
     neutral_is_zero: bool,
     stall_load: Force,
     volume_used_at_max_deflection: Volume,
-    actuator_physics : Actuator_Physics,
+    control_surface : Moving_Part,
 }
 
 // TODO
@@ -712,7 +746,7 @@ impl Actuator {
             neutral_is_zero: true,
             stall_load: Force::new::<newton>(47000.),
             volume_used_at_max_deflection: Volume::new::<gallon>(0.),
-            actuator_physics: Actuator_Physics::new(),
+            control_surface  : Moving_Part::new(),
         }
     }
 
@@ -722,8 +756,8 @@ impl Actuator {
         showStrPos[29] = b']';
 
 
-        let currentPositionRatio = self.actuator_physics.position / (self.actuator_physics.maxPos - self.actuator_physics.minPos) + 0.5;
-        let currentPositionReqRatio = self.actuator_physics.position_request / (self.actuator_physics.maxPos - self.actuator_physics.minPos) + 0.5;
+        let currentPositionRatio = self.control_surface.get_pos() / (self.control_surface.maxPos - self.control_surface.minPos) + 0.5;
+        let currentPositionReqRatio = self.control_surface.position_request / (self.control_surface.maxPos - self.control_surface.minPos) + 0.5;
 
         let testLen = showStrPos.len()-1;// showStrPos.len();
         let strPos = (testLen as f64 * currentPositionRatio) as usize;
@@ -737,22 +771,18 @@ impl Actuator {
 
     pub fn update(&mut self,context: &UpdateContext){
         self.updateServoForces(context);
-        //self.updateExternalForces();
-        self.actuator_physics.update(context);
+        self.control_surface.compute_external_forces(context);
+        self.control_surface.update(context);
     }
 
-    pub fn updateServoForces(&mut self,context: &UpdateContext){
-        
-        let mut dummyGravity= -10000000.0;
+    pub fn updateServoForces(&mut self,context: &UpdateContext){       
         let mut actuatorForce=self.availablePress.get::<pascal>() / self.area.get::<square_meter>() as f64;
         
-        if self.actuator_physics.position_request < self.actuator_physics.position {
+        if self.control_surface.position_request < self.control_surface.get_pos() {
             actuatorForce=-actuatorForce;
         } 
 
-        self.actuator_physics.sum_of_forces += actuatorForce;
-        self.actuator_physics.sum_of_forces += dummyGravity;
-            
+        self.control_surface.sum_of_forces += actuatorForce;          
     }
 }
 
@@ -824,9 +854,9 @@ mod tests {
                 //Generating actuator command
                 let curTim=timeStart.elapsed().as_secs() as u32;
                 if curTim % 2 == 0 {
-                    testActuator.actuator_physics.position_request = 100.0;
+                    testActuator.control_surface.position_request = 100.0;
                 } else {
-                    testActuator.actuator_physics.position_request = -100.0;
+                    testActuator.control_surface.position_request = -100.0;
                 }
                 //Activating pump at 5s
                 if curTim > 5 {
