@@ -671,11 +671,143 @@ impl Actuator {
 // TESTS
 ////////////////////////////////////////////////////////////////////////////////
 
+
+use plotlib::page::Page;
+use plotlib::repr::Plot;
+use plotlib::view::ContinuousView;
+use plotlib::style::{PointMarker, PointStyle, LineStyle};
+
+extern crate rustplotlib;
+use rustplotlib::Figure;
+
+
+fn make_figure<'a>(h: &'a History) -> Figure<'a> {
+    use rustplotlib::{Axes2D, Line2D};
+  
+    let mut allAxis: Vec<Option<Axes2D>> = Vec::new();
+
+    let mut idx=0;
+    for curData in &h.dataVector {
+        let mut currAxis = Axes2D::new()
+            .add(Line2D::new(h.nameVector[idx].as_str())
+            .data(&h.timeVector, &curData)
+            .color("blue")
+            //.marker("x")
+            //.linestyle("--")
+            .linewidth(1.0))
+            .xlabel("Time [sec]")
+            .ylabel(h.nameVector[idx].as_str())
+            .legend("best")
+            .xlim(0.0, *h.timeVector.last().unwrap());
+            //.ylim(-2.0, 2.0);
+
+            currAxis=currAxis.grid(true);    
+        idx=idx+1;
+        allAxis.push(Some(currAxis));
+    }
+  
+    Figure::new()
+      .subplots(allAxis.len() as u32, 1, allAxis)
+  }
+
+//History class to record a simulation
+pub struct History {
+    timeVector: Vec<f64>, //Simulation time starting from 0
+    nameVector: Vec<String>, //Name of each var saved
+    dataVector: Vec<Vec<f64>>, //Vector data for each var saved
+    dataSize: usize,
+}
+
+impl History {
+    pub fn new(names: Vec<String> ) -> History {          
+        History {
+            timeVector: Vec::new(),
+            nameVector: names.clone(),
+            dataVector: Vec::new(),
+            dataSize: names.len(),
+        }
+    }
+
+    //Sets initialisation values of each data before first step
+    pub fn init(&mut self,startTime:f64, values: Vec<f64>) {
+        self.timeVector.push(startTime);
+        for idx in 0..(values.len()) {
+            self.dataVector.push(vec![values[idx]]);
+        }
+    }
+
+    //Updates all values and time vector
+    pub fn update(&mut self,deltaTime :f64, values: Vec<f64>) {
+        self.timeVector.push(self.timeVector.last().unwrap() + deltaTime);
+        self.pushData(values);
+    }
+
+    pub fn pushData(&mut self,values: Vec<f64>){
+        for idx in 0..values.len() {
+            self.dataVector[idx].push(values[idx]);
+        }
+    }
+
+    //Builds a graph using rust crate plotlib
+    pub fn show(self){
+        
+        let mut v = ContinuousView::new()
+        .x_range(0.0, *self.timeVector.last().unwrap())
+        .y_range(0.0, 3500.0)
+        .x_label("Time (s)")
+        .y_label("Value");
+
+        for curData in self.dataVector {
+            //Here build the 2 by Xsamples vector
+            let mut newVector: Vec<(f64,f64)> = Vec::new();
+            for sampleIdx in 0..self.timeVector.len(){
+                newVector.push( (self.timeVector[sampleIdx] , curData[sampleIdx]) );
+            }
+
+            // We create our scatter plot from the data
+            let s1: Plot = Plot::new(newVector).line_style(
+                LineStyle::new()
+                    .colour("#DD3355"),
+            );
+            
+            v=v.add(s1);
+        }
+           
+
+        // A page with a single view is then saved to an SVG file
+        Page::single(&v).save("scatter.svg").unwrap();
+
+    }
+    
+    //builds a graph using matplotlib python backend. PYTHON REQUIRED AS WELL AS MATPLOTLIB PACKAGE
+    pub fn showMatplotlib(&self,figure_title : &str){
+        let fig = make_figure(&self);
+
+        use rustplotlib::Backend;
+        use rustplotlib::backend::Matplotlib;
+        let mut mpl = Matplotlib::new().unwrap();
+        mpl.set_style("ggplot").unwrap();
+        
+        fig.apply(&mut mpl).unwrap();
+        
+        //mpl.savefig("simple.png").unwrap();
+        mpl.savefig(figure_title);
+        //mpl.dump_pickle("simple.fig.pickle").unwrap();
+        mpl.wait().unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn green_loop_edp_simulation() {
+        let green_loop_var_names = vec!["Loop Pressure".to_string(), "Acc Gas Pressure".to_string()];
+        let mut greenLoopHistory = History::new(green_loop_var_names);
+        
+        let edp1_var_names = vec!["Delta Vol".to_string(), "n2 ratio".to_string()];
+        let mut edp1_History = History::new(edp1_var_names);
+
         let mut edp1 = engine_driven_pump();
         let mut green_loop = hydraulic_loop(LoopColor::Green);
         edp1.active = true;
@@ -683,6 +815,11 @@ mod tests {
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
         let ct = context(Duration::from_millis(50));
+
+        //let initValues = vec![green_loop.loop_pressure.get::<psi>(), green_loop.accumulator_gas_pressure.get::<psi>()];     
+        greenLoopHistory.init(0.0,vec![green_loop.loop_pressure.get::<psi>(), green_loop.accumulator_gas_pressure.get::<psi>()]);
+        edp1_History.init(0.0,vec![edp1.get_delta_vol().get::<liter>(), engine1.n2.get::<percent>() as f64]);
+
         for x in 0..400 {
             if x == 200 {
                 // engine1.n2 = Ratio::new::<percent>(0.0);
@@ -721,9 +858,15 @@ mod tests {
                     green_loop.prv_open
                 );
             }
-        }
 
-        assert!(true)
+            greenLoopHistory.update(ct.delta.as_secs_f64(), vec![green_loop.loop_pressure.get::<psi>() , green_loop.accumulator_gas_pressure.get::<psi>()]);
+            edp1_History.update(ct.delta.as_secs_f64(),vec![edp1.get_delta_vol().get::<liter>(), engine1.n2.get::<percent>() as f64]);
+
+        }
+        assert!(true);
+
+        greenLoopHistory.showMatplotlib("Green Loop Pressures");     
+        edp1_History.showMatplotlib("EDP1 data") ;
     }
 
     #[test]
