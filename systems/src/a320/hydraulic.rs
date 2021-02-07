@@ -6,12 +6,7 @@ use uom::si::{
     volume::cubic_inch, volume::gallon, volume::liter, volume_rate::cubic_meter_per_second,
     volume_rate::gallon_per_second,
 };
-use crate::{
-    hydraulic::{LoopColor, HydLoop, Pump, EngineDrivenPump, ElectricPump, RatPump, Actuator},
-    overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{DelayedTrueLogicGate, Engine},
-    simulator::UpdateContext,
-};
+use crate::{hydraulic::{Actuator, ElectricPump, EngineDrivenPump, HydFluid, HydLoop, LoopColor, Pump, RatPump}, overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine}, simulator::UpdateContext};
 
 pub struct A320Hydraulic {
     blue_loop: HydLoop,
@@ -32,26 +27,29 @@ impl A320Hydraulic {
             blue_loop: HydLoop::new(
                 LoopColor::Blue,
                 false,
-                Length::new::<meter>(10.),
                 Volume::new::<gallon>(1.5),
                 Volume::new::<gallon>(1.6),
-                Volume::new::<gallon>(1.5)
+                Volume::new::<gallon>(1.6),
+                Volume::new::<gallon>(1.5),
+                HydFluid::new(Pressure::new::<pascal>(1450000000.0))
             ),
             green_loop: HydLoop::new(
                 LoopColor::Green,
                 true,
-                Length::new::<meter>(15.),
                 Volume::new::<gallon>(3.6),
                 Volume::new::<gallon>(3.7),
-                Volume::new::<gallon>(3.6)
+                Volume::new::<gallon>(1.6),
+                Volume::new::<gallon>(3.6),
+                HydFluid::new(Pressure::new::<pascal>(1450000000.0))
             ),
             yellow_loop: HydLoop::new(
                 LoopColor::Blue,
                 true,
-                Length::new::<meter>(14.),
                 Volume::new::<gallon>(3.1),
                 Volume::new::<gallon>(3.2),
-                Volume::new::<gallon>(3.1)
+                Volume::new::<gallon>(1.6),
+                Volume::new::<gallon>(3.1),
+                HydFluid::new(Pressure::new::<pascal>(1450000000.0))
             ),
             engine_driven_pump_1: EngineDrivenPump::new(),
             engine_driven_pump_2: EngineDrivenPump::new(),
