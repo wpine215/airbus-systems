@@ -12,7 +12,7 @@ use crate::{
     simulator::UpdateContext,
 };
 
-//Interpolate values_map_y at point value_at_point in breakpoints break_points_x
+// //Interpolate values_map_y at point value_at_point in breakpoints break_points_x
 fn interpolation(xs: &[f64], ys: &[f64], intermediate_x: f64) -> f64 {
     debug_assert!(xs.len() == ys.len());
     debug_assert!(xs.len() >= 2);
@@ -25,18 +25,15 @@ fn interpolation(xs: &[f64], ys: &[f64], intermediate_x: f64) -> f64 {
         *ys.last().unwrap()
     } else {
         let mut idx:usize =1;
-        println!("---INTERP {}", idx);
+
         while idx < xs.len()-1 {
             if intermediate_x < xs[idx] {
                break;
-               println!("---INTERP BREAK idx{}", idx);
             }
             idx += 1;
         }
-        println!("---INTERP FINAL IDX {}", idx);
-        println!("---INTERP FINAL VAL {}", ys[idx-1] + (intermediate_x - xs[idx-1]) / (xs[idx] - xs[idx-1]) * (ys[idx] - ys[idx-1]));
-        ys[idx-1] + (intermediate_x - xs[idx-1]) / (xs[idx] - xs[idx-1]) * (ys[idx] - ys[idx-1])
-        
+
+        ys[idx-1] + (intermediate_x - xs[idx-1]) / (xs[idx] - xs[idx-1]) * (ys[idx] - ys[idx-1])       
     }
 }
 
@@ -846,10 +843,12 @@ mod tests {
         let mut engine1 = engine(init_n2);
         let ct = context(Duration::from_millis(100));
 
+        let green_acc_var_names = vec!["Loop Pressure".to_string(), "Acc gas press".to_string(), "Acc fluid vol".to_string(),"Acc gas vol".to_string()];
+        let mut accuGreenHistory = History::new(green_acc_var_names);
         //let initValues = vec![green_loop.loop_pressure.get::<psi>(), green_loop.accumulator_gas_pressure.get::<psi>()];     
         greenLoopHistory.init(0.0,vec![green_loop.loop_pressure.get::<psi>(), green_loop.loop_volume.get::<gallon>(),green_loop.reservoir_volume.get::<gallon>(),green_loop.current_flow.get::<gallon_per_second>()]);
         edp1_History.init(0.0,vec![edp1.get_delta_vol_max().get::<liter>(), engine1.n2.get::<percent>() as f64]);
-
+        accuGreenHistory.init(0.0,vec![green_loop.loop_pressure.get::<psi>(), green_loop.accumulator_gas_pressure.get::<psi>() ,green_loop.accumulator_fluid_volume.get::<gallon>(),green_loop.accumulator_gas_volume.get::<gallon>()]);
         for x in 0..400 {
             if x == 200 {
                 engine1.n2 = Ratio::new::<percent>(0.0);
@@ -887,12 +886,14 @@ mod tests {
 
             greenLoopHistory.update(ct.delta.as_secs_f64(), vec![green_loop.loop_pressure.get::<psi>(), green_loop.loop_volume.get::<gallon>(),green_loop.reservoir_volume.get::<gallon>(),green_loop.current_flow.get::<gallon_per_second>()]);
             edp1_History.update(ct.delta.as_secs_f64(),vec![edp1.get_delta_vol_max().get::<liter>(), engine1.n2.get::<percent>() as f64]);
-
+            accuGreenHistory.update(ct.delta.as_secs_f64(),vec![green_loop.loop_pressure.get::<psi>(), green_loop.accumulator_gas_pressure.get::<psi>() ,green_loop.accumulator_fluid_volume.get::<gallon>(),green_loop.accumulator_gas_volume.get::<gallon>()]);
+ 
         }
         assert!(true);
 
         greenLoopHistory.showMatplotlib("Green Loop Pressures");     
         edp1_History.showMatplotlib("EDP1 data") ;
+        accuGreenHistory.showMatplotlib("Green Accum data") ;
     }
 
     #[test]
@@ -967,6 +968,78 @@ mod tests {
         )
     }
 
+    #[cfg(test)]
+    mod characteristics_tests {
+        use super::*;
+        
+        #[test]
+        fn epump_charac(){
+            let mut epump = ElectricPump::new();
+
+            for rpm in 0..15000 {
+               // epump.update(delta_time, context, line)
+            }
+
+
+
+        }
+
+    }
+
+    #[cfg(test)]
+    mod utility_tests {
+        use crate::hydraulic::interpolation;
+        use rand::Rng;
+        use std::time::{Duration,Instant};
+
+        #[test]
+        fn interp_test(){
+            let xs1 =  [-100.0, -10.0, 10.0, 240.0, 320.0, 435.3, 678.9, 890.3, 10005.0, 203493.7];
+            let ys1 =  [-200.0, 10.0, 40.0, -553.0, 238.4, 30423.3, 23000.2, 32000.4, 43200.2,34.2];
+
+            //Check before first element
+            assert!(interpolation(&xs1, &ys1, -500.0)==ys1[0]);
+
+            //Check after last
+            assert!(interpolation(&xs1, &ys1, 100000000.0)==*ys1.last().unwrap());
+
+            //Check equal first
+            assert!(interpolation(&xs1, &ys1, *xs1.first().unwrap())==*ys1.first().unwrap());
+
+            //Check equal last
+            assert!(interpolation(&xs1, &ys1, *xs1.last().unwrap())==*ys1.last().unwrap());
+
+            //Check interp middle
+            let res=interpolation(&xs1, &ys1, 358.0);
+            assert!((res-10186.589).abs() < 0.001 );
+
+            //Check interp last segment
+            let res=interpolation(&xs1, &ys1, 22200.0);
+            assert!((res-40479.579).abs() < 0.001 );
+
+            //Check interp first segment
+            let res=interpolation(&xs1, &ys1, -50.0);
+            assert!((res-(-83.3333)).abs() < 0.001 );
+
+            //Speed check
+            let mut rng = rand::thread_rng();
+            let timeStart = Instant::now();
+            for idx in 0..1000000 {
+                let testVal= rng.gen_range(xs1[0]..xs1[3]);
+                let mut res=interpolation(&xs1, &ys1, testVal);
+                res=res+2.78;
+            }
+            let time_elapsed = timeStart.elapsed();
+
+            println!(
+                "Time elapsed for 1000000 calls {} s",
+                time_elapsed.as_secs_f64()
+            );
+
+            assert!(time_elapsed < Duration::from_millis(800) );
+        }
+
+    }
     #[cfg(test)]
     mod loop_tests {}
 
