@@ -616,7 +616,7 @@ pub struct ElectricPump {
 }
 impl ElectricPump {
     const SPOOLUP_TIME: f64 = 4.0;
-    const SPOOLDOWN_TIME: f64 = 8.0;
+    const SPOOLDOWN_TIME: f64 = 4.0;
     const NOMINAL_SPEED: f64 = 7600.0;
     const DISPLACEMENT_BREAKPTS: [f64; 9] = [
         0.0, 500.0, 1000.0, 1500.0, 2800.0, 2900.0, 3000.0, 3050.0, 3500.0,
@@ -993,7 +993,7 @@ mod tests {
             }
 
             if x >= 600 { //X+200 after shutoff = X + 20seconds @ 100ms, so pressure shall be low
-                assert!(yellow_loop.loop_pressure <= Pressure::new::<psi>(50.0));
+                assert!(yellow_loop.loop_pressure <= Pressure::new::<psi>(100.0));
             }
             epump.update(&ct.delta,&ct, &yellow_loop);
             yellow_loop.update(&ct.delta,&ct, vec![&epump], Vec::new(), Vec::new(), Vec::new());
