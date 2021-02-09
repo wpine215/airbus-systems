@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use uom::si::{
     area::square_meter, f64::*, force::newton, length::foot, length::meter,
     mass_density::kilogram_per_cubic_meter, pressure::atmosphere, pressure::pascal, pressure::psi,
@@ -6,7 +6,7 @@ use uom::si::{
     volume::cubic_inch, volume::gallon, volume::liter, volume_rate::cubic_meter_per_second,
     volume_rate::gallon_per_second,
 };
-use crate::{hydraulic::{Actuator, ElectricPump, EngineDrivenPump, HydFluid, HydLoop, LoopColor, Pump, RatPump}, overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine}, simulator::UpdateContext};
+use crate::{hydraulic::{Actuator, ElectricPump, EngineDrivenPump, HydFluid, HydLoop, LoopColor, Pump, RatPump, Ptu}, overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine}, simulator::UpdateContext};
 
 pub struct A320Hydraulic {
     blue_loop: HydLoop,
@@ -16,6 +16,7 @@ pub struct A320Hydraulic {
     engine_driven_pump_2: EngineDrivenPump,
     blue_electric_pump: ElectricPump,
     yellow_electric_pump: ElectricPump,
+    ptu: Ptu,
     // Until hydraulic is implemented, we'll fake it with this boolean.
     // blue_pressurised: bool,
 }
@@ -34,7 +35,7 @@ impl A320Hydraulic {
                 Volume::new::<gallon>(1.6),
                 Volume::new::<gallon>(1.6),
                 Volume::new::<gallon>(1.5),
-                HydFluid::new(Pressure::new::<pascal>(1450000000.0))
+                HydFluid::new(Pressure::new::<pascal>(1450000000.0)),
             ),
             green_loop: HydLoop::new(
                 LoopColor::Green,
@@ -60,6 +61,7 @@ impl A320Hydraulic {
             engine_driven_pump_2: EngineDrivenPump::new(),
             blue_electric_pump: ElectricPump::new(),
             yellow_electric_pump: ElectricPump::new(),
+            ptu : Ptu::new(),
         }
     }
 
@@ -75,8 +77,59 @@ impl A320Hydraulic {
         self.yellow_loop.get_pressure().get::<psi>() >= A320Hydraulic::MIN_PRESS_PRESSURISED
     }
 
-    pub fn update(&mut self, _: &UpdateContext) {
+    pub fn update(&mut self, ct: &UpdateContext) {
+
+        let timeStart = Instant::now();
+        let mut now =  Instant::now();
+
+        let min_hyd_loop_timestep = Duration::from_millis(100); //Hyd Sim rate = 10 Hz
         
+        let mut time_lag_accumulator = 0.0;
+
+        //time to catch up in our simulation
+        let mut timeElapsed = now.elapsed();
+
+        timeElapsed=timeElapsed+ Duration::from_secs_f64(time_lag_accumulator);
+
+        
+        //Dummy engine TODO to remove
+        let mut engine1 = Engine::new();//engine(Ratio::new::<percent>(0.5));
+        engine1.n2=Ratio::new::<percent>(0.5);
+        let mut engine2 = Engine::new();
+        engine2.n2=Ratio::new::<percent>(0.5);
+
+        let numberOfSteps_f64 = timeElapsed.as_secs_f64()/min_hyd_loop_timestep.as_secs_f64();
+
+        if numberOfSteps_f64 < 1.0 {
+            //Can't do a full time step
+            //we can either do an update with smaller step or wait next iteration
+            //Other option is to update only actuator position based on known hydraulic 
+            //state to avoid lag of control surfaces if sim runs really fast
+            time_lag_accumulator=numberOfSteps_f64 * min_hyd_loop_timestep.as_secs_f64(); //Time lag is float part of num of steps * fixed time step to get a result in time
+        } else {
+            //TRUE UPDATE LOOP HERE
+            let num_of_update_loops = numberOfSteps_f64.floor() as u32;
+
+            time_lag_accumulator= (numberOfSteps_f64 - (num_of_update_loops as f64))* min_hyd_loop_timestep.as_secs_f64(); //Keep track of time left after all fixed loop are done
+           
+
+            for curLoop in  0..num_of_update_loops {
+                //UPDATE HYDRAULICS FIXED TIME STEP
+                     
+                self.ptu.update(&self.green_loop, &self.yellow_loop);
+                self.engine_driven_pump_1.update(&min_hyd_loop_timestep,&ct, &self.green_loop, &engine1);
+                self.engine_driven_pump_2.update(&min_hyd_loop_timestep,&ct, &self.yellow_loop, &engine2);
+                self.yellow_electric_pump.update(&min_hyd_loop_timestep,&ct, &self.yellow_loop);
+                self.blue_electric_pump.update(&min_hyd_loop_timestep,&ct, &self.blue_loop);
+          
+
+                self.green_loop.update(&min_hyd_loop_timestep,&ct, Vec::new(), vec![&self.engine_driven_pump_1], Vec::new(), vec![&self.ptu]);
+                self.yellow_loop.update(&min_hyd_loop_timestep,&ct, vec![&self.yellow_electric_pump], vec![&self.engine_driven_pump_2], Vec::new(), vec![&self.ptu]);
+                self.blue_loop.update(&min_hyd_loop_timestep,&ct, vec![&self.blue_electric_pump], Vec::new(), Vec::new(), Vec::new());
+            }
+          
+        }     
+        //now=Instant::now();       
     }
 }
 
