@@ -546,6 +546,7 @@ pub struct ElectricPump {
 impl ElectricPump {
     const SPOOLUP_TIME: f64 = 4.0;
     const SPOOLDOWN_TIME: f64 = 8.0;
+    const NOMINAL_SPEED: f64 = 7600.0;
     const DISPLACEMENT_BREAKPTS: [f64; 9] = [
         0.0, 500.0, 1000.0, 1500.0, 2800.0, 2900.0, 3000.0, 3050.0, 3500.0,
     ];
@@ -570,15 +571,18 @@ impl ElectricPump {
     }
 
     pub fn update(&mut self,delta_time: &Duration, context: &UpdateContext, line: &HydLoop) {
-        // Pump startup/shutdown process
-        if self.active && self.rpm < 7600.0 {
-            self.rpm += 7600.0f64
-                .min((7600. / ElectricPump::SPOOLUP_TIME) * (delta_time.as_secs_f64() * 10.));
+        
+        //TODO Simulate speed of pump depending on pump load (flow?/ current?)
+        //Pump startup/shutdown process
+        if self.active && self.rpm < ElectricPump::NOMINAL_SPEED {          
+            self.rpm += (ElectricPump::NOMINAL_SPEED / ElectricPump::SPOOLUP_TIME) * delta_time.as_secs_f64();
         } else if !self.active && self.rpm > 0.0 {
-            self.rpm -= 7600.0f64
-                .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (delta_time.as_secs_f64() * 10.));
+            self.rpm -= (ElectricPump::NOMINAL_SPEED / ElectricPump::SPOOLUP_TIME) * delta_time.as_secs_f64();
         }
 
+        //Limiting min and max speed
+        self.rpm = self.rpm.min(ElectricPump::NOMINAL_SPEED ).max(0.0);
+       
         self.pump.update(delta_time, context, line, self.rpm);
     }
 }
@@ -826,6 +830,8 @@ impl History {
 
 #[cfg(test)]
 mod tests {
+    //use uom::si::volume_rate::VolumeRate;
+
     use super::*;
     #[test]
     fn green_loop_edp_simulation() {
@@ -969,17 +975,90 @@ mod tests {
     }
 
     #[cfg(test)]
+
+    struct PressureCaracteristic {
+        pressure: Pressure,
+        rpmTab : Vec <f64>,
+        flowTab : Vec <f64>,
+    }
+
     mod characteristics_tests {
         use super::*;
         
+        fn show_carac(figure_title : &str, outputCaracteristics : & Vec<PressureCaracteristic>){
+            use rustplotlib::{Axes2D, Line2D};
+  
+            let mut allAxis: Vec<Option<Axes2D>> = Vec::new();
+            let colors = ["blue", "yellow" ,"red" ,"black","cyan","magenta","green"];
+            let linestyles = ["--" , "-.", "-"];
+            let mut currAxis = Axes2D::new();
+            currAxis=currAxis.grid(true);
+            let mut colorIdx=0;
+            let mut styleIdx=0;
+            for curPressure in outputCaracteristics {
+                //curPressure.pressure.get::<psi>()
+                let press_str = format!("P={:.0}", curPressure.pressure.get::<psi>());
+                currAxis=currAxis.add(Line2D::new(press_str.as_str())
+                    .data(&curPressure.rpmTab, &curPressure.flowTab)
+                    .color(colors[colorIdx])
+                    //.marker("x")
+                    .linestyle(linestyles[styleIdx])
+                    .linewidth(1.0))
+                    .xlabel("RPM")
+                    .ylabel("Max Flow")
+                    .legend("best")
+                    .xlim(0.0, *curPressure.rpmTab.last().unwrap());
+                    //.ylim(-2.0, 2.0);   
+                   colorIdx=(colorIdx+1)%colors.len();
+                   styleIdx=(styleIdx+1)%linestyles.len();  
+                                         
+            }
+            allAxis.push(Some(currAxis));
+            let fig = Figure::new()
+            .subplots(allAxis.len() as u32, 1, allAxis);
+
+            use rustplotlib::Backend;
+            use rustplotlib::backend::Matplotlib;
+            let mut mpl = Matplotlib::new().unwrap();
+            mpl.set_style("ggplot").unwrap();
+            
+            fig.apply(&mut mpl).unwrap();
+            
+            //mpl.savefig("simple.png").unwrap();
+            mpl.savefig(figure_title);
+            //mpl.dump_pickle("simple.fig.pickle").unwrap();
+            mpl.wait().unwrap();
+            // Figure::new()
+            // .subplots(allAxis.len() as u32, 1, allAxis)
+        }
+        
         #[test]
         fn epump_charac(){
+            let mut outputCaracteristics : Vec<PressureCaracteristic> = Vec::new();
             let mut epump = ElectricPump::new();
+            //let context = context(Duration::from_secs_f64(0.0001) ); //Small dt to freeze spool up effect
+            let context = context(Duration::from_secs_f64(0.000001) ); //Small dt to freeze spool up effect
+            
+            
+            let mut green_loop = hydraulic_loop(LoopColor::Green);
 
-            for rpm in 0..15000 {
-               // epump.update(delta_time, context, line)
+            epump.start();
+            //let mut pressureIdx=0;
+            for pressure in (0..3500).step_by(500) {
+                let mut rpmTab: Vec<f64> = Vec::new();
+                let mut flowTab: Vec<f64> = Vec::new();
+                for rpm in (0..10000).step_by(150) {
+                    green_loop.loop_pressure=Pressure::new::<psi>(pressure as f64);
+                    epump.rpm=rpm as f64;
+                    epump.update(&context.delta, &context, &green_loop);
+                    rpmTab.push(rpm as f64);
+                    let flow=epump.get_delta_vol_max()/ Time::new::<second>(context.delta.as_secs_f64());
+                    let flowGal = flow.get::<gallon_per_second>() as f64;
+                    flowTab.push(flowGal);             
+                }
+                outputCaracteristics.push(PressureCaracteristic{pressure:green_loop.loop_pressure,rpmTab,flowTab});
             }
-
+            show_carac("Epump_carac",&outputCaracteristics);
 
 
         }
@@ -1025,7 +1104,7 @@ mod tests {
             let mut rng = rand::thread_rng();
             let timeStart = Instant::now();
             for idx in 0..1000000 {
-                let testVal= rng.gen_range(xs1[0]..xs1[3]);
+                let testVal= rng.gen_range(xs1[0]..*xs1.last().unwrap());
                 let mut res=interpolation(&xs1, &ys1, testVal);
                 res=res+2.78;
             }
