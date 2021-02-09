@@ -5,9 +5,24 @@ name = "a320"
 version = "0.1.0"
 dependencies = [
  "airbus-systems",
- "msfs",
+ "msfs 0.0.1-alpha.2 (git+https://github.com/flybywiresim/msfs-rs?branch=main)",
  "uom",
 ]
+
+[[package]]
+name = "addr2line"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a55f82cfe485775d02112886f4169bde0c5894d75e79ead7eafe7e40a25e45f7"
+dependencies = [
+ "gimli",
+]
+
+[[package]]
+name = "adler"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee2a4ec343196209d6594e19543ae87a39f96d5534d7174822a3ad825dd6ed7e"
 
 [[package]]
 name = "aho-corasick"
@@ -22,8 +37,11 @@ dependencies = [
 name = "airbus-systems"
 version = "0.1.0"
 dependencies = [
+ "msfs 0.0.1-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ntest",
+ "plotlib",
  "rand",
+ "rustplotlib",
  "uom",
 ]
 
@@ -52,6 +70,20 @@ name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
+
+[[package]]
+name = "backtrace"
+version = "0.3.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef5140344c85b01f9bbb4d4b7288a8aa4b3287ccef913a14bcc78a1063623598"
+dependencies = [
+ "addr2line",
+ "cfg-if 1.0.0",
+ "libc",
+ "miniz_oxide",
+ "object",
+ "rustc-demangle",
+]
 
 [[package]]
 name = "bindgen"
@@ -147,6 +179,28 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "failure"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d32e9bd16cc02eae7db7ef620b392808b89f6a5e16bb3497d159c6b92a0f4f86"
+dependencies = [
+ "backtrace",
+ "failure_derive",
+]
+
+[[package]]
+name = "failure_derive"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "synstructure",
 ]
 
 [[package]]
@@ -256,6 +310,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimli"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6503fe142514ca4799d4c26297c4248239fe8838d827db6bd6065c6ed29a6ce"
+
+[[package]]
 name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -323,6 +383,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
+name = "miniz_oxide"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2d26ec3309788e423cfbf68ad1800f061638098d76a83681af979dc4eda19d"
+dependencies = [
+ "adler",
+ "autocfg",
+]
+
+[[package]]
+name = "msfs"
+version = "0.0.1-alpha.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15411d13863aa57d137712f43b848962d87209a6f9521a132f728189ff019b6e"
+dependencies = [
+ "bindgen",
+ "cc",
+ "futures",
+ "msfs_derive 0.0.1-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "msfs_sdk 0.0.1-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "msfs"
 version = "0.0.1-alpha.2"
 source = "git+https://github.com/flybywiresim/msfs-rs?branch=main#2208e6229a2b924c48ea8cf36bda6cbc78a452ac"
@@ -330,9 +413,20 @@ dependencies = [
  "bindgen",
  "cc",
  "futures",
- "msfs_derive",
- "msfs_sdk",
+ "msfs_derive 0.0.1-alpha.2 (git+https://github.com/flybywiresim/msfs-rs?branch=main)",
+ "msfs_sdk 0.0.1-alpha.2 (git+https://github.com/flybywiresim/msfs-rs?branch=main)",
  "wasi",
+]
+
+[[package]]
+name = "msfs_derive"
+version = "0.0.1-alpha.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42369c05118cccf969f6922b245da3bab987d51e62516085fae48ea20d2cef77"
+dependencies = [
+ "msfs_sdk 0.0.1-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -340,10 +434,16 @@ name = "msfs_derive"
 version = "0.0.1-alpha.2"
 source = "git+https://github.com/flybywiresim/msfs-rs?branch=main#2208e6229a2b924c48ea8cf36bda6cbc78a452ac"
 dependencies = [
- "msfs_sdk",
+ "msfs_sdk 0.0.1-alpha.2 (git+https://github.com/flybywiresim/msfs-rs?branch=main)",
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "msfs_sdk"
+version = "0.0.1-alpha.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0ad3f449ea14f11ab688a72684bbb3584007391b4faa29d27260b3b2ec6246d"
 
 [[package]]
 name = "msfs_sdk"
@@ -411,6 +511,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d3b63360ec3cb337817c2dbd47ab4a0f170d285d8e5a2064600f3def1402397"
+
+[[package]]
 name = "once_cell"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -433,6 +539,16 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "plotlib"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9462104f987d8d0f6625f0c7764f1c8b890bd1dc8584d8293e031f25c5a0d242"
+dependencies = [
+ "failure",
+ "svg",
+]
 
 [[package]]
 name = "ppv-lite86"
@@ -544,10 +660,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5eb417147ba9860a96cfe72a0b93bf88fee1744b5636ec99ab20c1aa9376581"
 
 [[package]]
+name = "rustc-demangle"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e3bad0ee36814ca07d7968269dd4b7ec89ec2da10c4bb613928d3077083c232"
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustplotlib"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4326f7ac67e4ff419282ad12dabf1fcad09481a849b72108c890e01414ebb88a"
 
 [[package]]
 name = "serde"
@@ -574,6 +702,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
 
 [[package]]
+name = "svg"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3685c82a045a6af0c488f0550b0f52b4c77d2a52b0ca8aba719f9d268fa96965"
+
+[[package]]
 name = "syn"
 version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -581,6 +715,18 @@ checksum = "cc60a3d73ea6594cd712d830cc1f0390fd71542d8c8cd24e70cc54cdfd5e05d5"
 dependencies = [
  "proc-macro2",
  "quote",
+ "unicode-xid",
+]
+
+[[package]]
+name = "synstructure"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b834f2d66f734cb897113e34aaff2f1ab4719ca946f9a7358dba8f8064148701"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
  "unicode-xid",
 ]
 
