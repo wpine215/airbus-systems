@@ -17,12 +17,15 @@ pub struct A320Hydraulic {
     blue_electric_pump: ElectricPump,
     yellow_electric_pump: ElectricPump,
     ptu: Ptu,
+    total_sim_time_elapsed: Duration,
+    lag_time_accumulator: Duration,
     // Until hydraulic is implemented, we'll fake it with this boolean.
     // blue_pressurised: bool,
 }
 
 impl A320Hydraulic {
     const MIN_PRESS_PRESSURISED : f64 = 100.0;
+    const HYDRAULIC_SIM_TIME_STEP : u64 = 100; //refresh rate of hydraulic simulation in ms
 
     pub fn new() -> A320Hydraulic {
         A320Hydraulic {
@@ -62,6 +65,8 @@ impl A320Hydraulic {
             blue_electric_pump: ElectricPump::new(),
             yellow_electric_pump: ElectricPump::new(),
             ptu : Ptu::new(),
+            total_sim_time_elapsed: Duration::new(0,0),
+            lag_time_accumulator: Duration::new(0,0),
         }
     }
 
@@ -79,38 +84,34 @@ impl A320Hydraulic {
 
     pub fn update(&mut self, ct: &UpdateContext) {
 
-        let timeStart = Instant::now();
-        let mut now =  Instant::now();
-
-        let min_hyd_loop_timestep = Duration::from_millis(100); //Hyd Sim rate = 10 Hz
-        
-        let mut time_lag_accumulator = 0.0;
+        let min_hyd_loop_timestep = Duration::from_millis(A320Hydraulic::HYDRAULIC_SIM_TIME_STEP); //Hyd Sim rate = 10 Hz
 
         //time to catch up in our simulation
-        let mut timeElapsed = now.elapsed();
+        self.total_sim_time_elapsed += ct.delta;
 
-        timeElapsed=timeElapsed+ Duration::from_secs_f64(time_lag_accumulator);
+        let time_to_catch=self.total_sim_time_elapsed + self.lag_time_accumulator;
 
         
-        //Dummy engine TODO to remove
-        let mut engine1 = Engine::new();//engine(Ratio::new::<percent>(0.5));
+        //Dummy engine TODO to remove when I know how to get engine state
+        let mut engine1 = Engine::new();
         engine1.n2=Ratio::new::<percent>(0.5);
         let mut engine2 = Engine::new();
         engine2.n2=Ratio::new::<percent>(0.5);
 
-        let numberOfSteps_f64 = timeElapsed.as_secs_f64()/min_hyd_loop_timestep.as_secs_f64();
+        //Number of time steps to do according to required time step
+        let numberOfSteps_f64 = time_to_catch.as_secs_f64()/min_hyd_loop_timestep.as_secs_f64();
 
         if numberOfSteps_f64 < 1.0 {
             //Can't do a full time step
             //we can either do an update with smaller step or wait next iteration
             //Other option is to update only actuator position based on known hydraulic 
             //state to avoid lag of control surfaces if sim runs really fast
-            time_lag_accumulator=numberOfSteps_f64 * min_hyd_loop_timestep.as_secs_f64(); //Time lag is float part of num of steps * fixed time step to get a result in time
+            self.lag_time_accumulator=Duration::from_secs_f64(numberOfSteps_f64 * min_hyd_loop_timestep.as_secs_f64()); //Time lag is float part of num of steps * fixed time step to get a result in time
         } else {
             //TRUE UPDATE LOOP HERE
-            let num_of_update_loops = numberOfSteps_f64.floor() as u32;
-
-            time_lag_accumulator= (numberOfSteps_f64 - (num_of_update_loops as f64))* min_hyd_loop_timestep.as_secs_f64(); //Keep track of time left after all fixed loop are done
+            let num_of_update_loops = numberOfSteps_f64.floor() as u32; //Int part is the actual number of loops to do
+            //Rest of floating part goes into accumulator
+            self.lag_time_accumulator= Duration::from_secs_f64((numberOfSteps_f64 - (num_of_update_loops as f64))* min_hyd_loop_timestep.as_secs_f64()); //Keep track of time left after all fixed loop are done
            
 
             for curLoop in  0..num_of_update_loops {
@@ -128,8 +129,7 @@ impl A320Hydraulic {
                 self.blue_loop.update(&min_hyd_loop_timestep,&ct, vec![&self.blue_electric_pump], Vec::new(), Vec::new(), Vec::new());
             }
           
-        }     
-        //now=Instant::now();       
+        }        
     }
 }
 
