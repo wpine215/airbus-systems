@@ -27,6 +27,7 @@ impl A320Hydraulic {
             blue_loop: HydLoop::new(
                 LoopColor::Blue,
                 false,
+                false,
                 Volume::new::<gallon>(1.5),
                 Volume::new::<gallon>(1.6),
                 Volume::new::<gallon>(1.6),
@@ -36,6 +37,7 @@ impl A320Hydraulic {
             green_loop: HydLoop::new(
                 LoopColor::Green,
                 true,
+                false,
                 Volume::new::<gallon>(3.6),
                 Volume::new::<gallon>(3.7),
                 Volume::new::<gallon>(1.6),
@@ -44,6 +46,7 @@ impl A320Hydraulic {
             ),
             yellow_loop: HydLoop::new(
                 LoopColor::Blue,
+                false,
                 true,
                 Volume::new::<gallon>(3.1),
                 Volume::new::<gallon>(3.2),
